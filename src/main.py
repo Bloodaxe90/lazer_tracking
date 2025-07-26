@@ -2,7 +2,7 @@ import os
 
 from src.camera.camera_setup import setup_camera
 from src.camera.camera_stream import CameraStream
-from src.camera.image_processing import setup_kalman_filter
+from src.utils.setup_kalman_filter import setup_kalman_filter
 from src.fsm.fsm_calibration import get_amplitude_per_pixel
 from src.fsm.fsm import FSM
 from src.fsm.fsm_setup import setup_fsm

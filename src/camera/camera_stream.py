@@ -21,10 +21,10 @@ class CameraStream:
         super().__init__()
         self.camera = camera
         self.latest_frame = None  # Store the latest frame
-        self._lock = threading.Lock()
+        self.lock = threading.Lock()
         self.capture_time_buffer = deque(maxlen=6)  # Stores frame capture times to later compute FPS
-        self._thread = threading.Thread(target=self._update, daemon=True)
-        self._stopped = False
+        self.update_thread = threading.Thread(target=self.update_loop, daemon=True)
+        self.stopped = False
 
     def start(self):
         """
@@ -32,18 +32,18 @@ class CameraStream:
         """
         print("Starting camera stream thread\n")
         self.camera.start_video_capture()
-        self._stopped = False
-        self._thread.start()
+        self.stopped = False
+        self.update_thread.start()
         return self
 
-    def _update(self):
+    def update_loop(self):
         """
         The method that runs in the background thread continuously
         capturing frames and saving them to latest_frame
         """
-        while not self._stopped:
+        while not self.stopped:
             frame = self.camera.capture_video_frame()
-            with self._lock:
+            with self.lock:
                 self.latest_frame = frame
                 self.capture_time_buffer.append(time.time())  # Record current time for later FPS calculation
 
@@ -58,7 +58,7 @@ class CameraStream:
         Returns:
             float: Estimated frames per second.
         """
-        with self._lock:
+        with self.lock:
             if len(self.capture_time_buffer) < 2:
                 print("Buffer is not full enough to compute FPS")
                 return 0.0
@@ -78,7 +78,7 @@ class CameraStream:
         Returns:
             np.ndarray: The latest video frame (or None if not yet available)
         """
-        with self._lock:
+        with self.lock:
             return self.latest_frame
 
     def stop(self):
@@ -86,5 +86,5 @@ class CameraStream:
         Stops the camera stream and waits for the background thread to finish
         """
         print("Stopping camera stream thread")
-        self._stopped = True
-        self._thread.join()
+        self.stopped = True
+        self.update_thread.join()

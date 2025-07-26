@@ -13,37 +13,66 @@ from src.camera.camera_calibration import get_master_dark
 from src.camera.camera_setup import setup_camera
 from src.camera.camera_stream import CameraStream
 from src.camera.image_processing import get_clean_frame, \
-    get_redness_frame, get_contours, get_contour_origin, get_largest_contour, \
-    setup_kalman_filter
+    get_redness_frame, get_contours, get_contour_origin, get_largest_contour
 from src.fsm.fsm_calibration import get_amplitude_per_pixel
 from src.fsm.fsm import FSM
 from src.fsm.fsm_setup import setup_fsm
-from src.utils.general import wait
-from src.utils.inference import show_images
+from src.utils.live_plotter import LivePlotter
+from src.utils.general import show_images, wait
 from src.utils.io import save_results
+from src.utils.setup_kalman_filter import setup_kalman_filter
+from src.utils.spectral_analysis import get_frequencies_and_amplitudes
 
 
 def test():
+    # General Parameters
+    ROOT_DIR = os.path.dirname(os.getcwd())
+    COLOUR = False
+    BUFFER_CAPACITY = 1
+    KERNEL_SIZE = 3
+
+    # Camera Parameters
+    SDK_LIB_NAME: str = 'libASICamera2.dylib'
+    CAMERA_ID: int = 0
     BINS = 2
     GAIN = 120
-    EXPOSURE = 32  # µs
+    EXPOSURE = 32
     RESOLUTION = (8288, 5640)
     START_POS = (0, 0)
     FRAMES_DARK = 10
-    BUFFER_CAPACITY = 1
-    ITERATIONS: int = 1000
-    COLOUR: bool = False
-    FSM: bool = False
-    KALMAN_FILTER: bool = False
+
+    # FSM Parameters
+    PORT: str = "/dev/cu.usbserial-24127109"
+    BAUDRATE: int = 115200
+    TIMEOUT: int = 1
+
+    # Kalman Filter Parameters
     MODEL_UNCERTAINTY = 0.05
     MEASUREMENT_UNCERTAINTY = 0.5
-    # Contour mode for finding center of brightest point, if false cv2.minMaxLoc will be used
-    CONTOUR_MODE: bool = True
-    CAMERA_ID: int = 0
-    SDK_LIB_NAME: str = 'libASICamera2.dylib'
-    KERNEL_SIZE: int = 3 # Kernel size of morphological openeing
 
-    experiment_name: str = (f"square_.0A_"
+    # testing specific paramters (Including frequency plotter)
+    ITERATIONS = 10000
+    KALMAN_FILTER = False
+    FSM = False
+    CONTOUR_MODE = True
+
+    PLOTTER = True
+    WINDOW_SIZE = 100
+    PLOT_CAPACITY = ITERATIONS
+    PLOT_UPDATE_RATE = 1
+    PLOTTER_Y_FIELDS = (
+        ("r-", "X Dominant Frequency"),
+        ("b-", "Y Dominant Frequency")
+    )
+    PLOT_SAVE_NAME = "freq_plot"
+    PLOT_TITLE = "Frequency vs Time"
+    PLOT_X_LABEL = "Time (s)"
+    PLOT_Y_LABEL = "Frequency (Hz)"
+
+
+    EXPERIMENT_NAME: str = (f"Test"
+                            f".04A_"
+                            f"T180s_"
                             f"G{GAIN}_"
                             f"E{EXPOSURE}_"
                             f"B{BINS}_"
@@ -56,62 +85,70 @@ def test():
                             f"MEU{MEASUREMENT_UNCERTAINTY}_"
                             f"C{1 if CONTOUR_MODE else 0}_"
                             f"K{KERNEL_SIZE}")
-
-    root_dir = os.path.dirname(os.getcwd())
-
-    # Setting up camera
-    camera, master_dark= setup_camera(root_dir= root_dir,
-                                                      sdk_lib_name= SDK_LIB_NAME,
-                                                      camera_id= CAMERA_ID,
-                                                      bins=BINS,
-                                                      gain=GAIN,
-                                                      exposure=EXPOSURE,
-                                                      resolution= RESOLUTION,
-                                                      start_pos= START_POS,
-                                                      num_frames= FRAMES_DARK,
-                                                      colour=COLOUR)
-
-    camera_stream = CameraStream().start()
-
-    if FSM:
-        # Setting up FSM
-        PORT: str = "/dev/cu.usbserial-24127109"
-        BAUDRATE: int = 115200
-        TIMEOUT: int = 1
-        fsm: FSM = setup_fsm(PORT, BAUDRATE, TIMEOUT)
-        fsm.send_command("control strategy feedforward")
-
-        origin_x = (RESOLUTION[0] / BINS) / 2
-        origin_y = (RESOLUTION[1] / BINS) / 2
-
-        wait("Ready to calibrate amplitude per pixel.\n"
-             "Please ensure the laser points to the center of the camera")
-
-        amplitude_per_pixel_x, amplitude_per_pixel_y = get_amplitude_per_pixel(camera=camera,
-                                                                               master_dark= master_dark,
-                                                                               origin_pos= (origin_x, origin_y),
-                                                                               fsm= fsm,
-                                                                               colour= COLOUR
-                                                                               )
-        print(f"Amplitude Per Pixel X: {amplitude_per_pixel_x} Y: {amplitude_per_pixel_y}")
-
-    frame_buffer: collections.deque = deque(maxlen=BUFFER_CAPACITY)
-
     results = pd.DataFrame(columns=["X", "Y", "Time"])
 
-    wait("Start?")
-    print("Started")
+    camera = None
+    camera_stream = None
+    fsm = None
+    plotter = None
+    kalman_filter = None
 
-    if KALMAN_FILTER:
-        kalman_filter = setup_kalman_filter(frame_rate= camera_stream.get_fps(),
-                                            model_uncertainty= MODEL_UNCERTAINTY,
-                                            measurement_uncertainty= MEASUREMENT_UNCERTAINTY)
-    amplitude_x: float = 0
-    amplitude_y: float = 0
-    start_time = time.time()
-    last_time = start_time
+    amplitude_per_pixel_x = 0
+    amplitude_per_pixel_y = 0
 
     try:
+        camera, master_dark = setup_camera(root_dir=ROOT_DIR,
+                                           sdk_lib_name=SDK_LIB_NAME,
+                                           camera_id=CAMERA_ID,
+                                           bins=BINS,
+                                           gain=GAIN,
+                                           exposure=EXPOSURE,
+                                           resolution=RESOLUTION,
+                                           start_pos=START_POS,
+                                           num_frames=FRAMES_DARK,
+                                           colour=COLOUR)
+        camera_stream = CameraStream(camera).start()
+
+        if KALMAN_FILTER:
+            kalman_filter = setup_kalman_filter(frame_rate=camera_stream.get_fps(),
+                                                model_uncertainty=MODEL_UNCERTAINTY,
+                                                measurement_uncertainty=MEASUREMENT_UNCERTAINTY)
+
+        origin_x, origin_y = ((RESOLUTION[0] / BINS) / 2, (RESOLUTION[1] / BINS) / 2)
+
+
+        if FSM:
+            wait("Ready to calibrate amplitude per pixel.\n"
+                 "Please ensure the laser points to around the center of the camera")
+
+            fsm: FSM = setup_fsm(PORT, BAUDRATE, TIMEOUT)
+            amplitude_per_pixel_x,  amplitude_per_pixel_y= get_amplitude_per_pixel(
+                camera=camera,
+                master_dark=master_dark,
+                origin_pos=(origin_x, origin_y),
+                fsm=fsm)
+
+            print(f"Amplitude Per Pixel X: {amplitude_per_pixel_x} Y: {amplitude_per_pixel_y}")
+
+            fsm.send_command("control strategy feedforward")
+
+        frame_buffer: deque = deque(maxlen=BUFFER_CAPACITY)
+
+        if PLOTTER:
+            plotter = LivePlotter(ROOT_DIR,
+                                  PLOTTER_Y_FIELDS,
+                                PLOT_SAVE_NAME,
+                                PLOT_CAPACITY,
+                                PLOT_X_LABEL,
+                                PLOT_Y_LABEL,
+                                PLOT_TITLE)
+
+        amplitude_x: float = 0
+        amplitude_y: float = 0
+
+        start_time = time.time()
+        last_time = start_time
+
         for i in range(ITERATIONS):
             if KALMAN_FILTER:
                 current_time = time.time()
@@ -172,6 +209,19 @@ def test():
             if (i + 1) % 100 == 0:
                 print(f"Iteration: {i + 1}, FPS: {camera_stream.get_fps()}, Sample Rate: {(i + 1) / (time.time() -  start_time)}")
 
+            if PLOTTER:
+                if (i + 1) % PLOT_UPDATE_RATE == 0 and i != 0: # Doesnt wait for buffer to fill before updating to ensure sample rate stays consistent
+                    amount = (i + 1) if i < WINDOW_SIZE else WINDOW_SIZE
+                    x_positions = np.array(results["X"])[-amount:]
+                    y_positions = np.array(results["Y"])[-amount:]
+                    times = np.array(results["Time"])[-amount:]
+                    x_frequencies, x_amplitudes = get_frequencies_and_amplitudes(x_positions, times)
+                    y_frequencies, y_amplitudes = get_frequencies_and_amplitudes(y_positions, times)
+                    x_dominant_frequency = x_frequencies[np.argmax(x_amplitudes)]
+                    y_dominant_frequency = y_frequencies[np.argmax(y_amplitudes)]
+                    plotter.update((x_dominant_frequency, y_dominant_frequency), times[-1])
+
+
             if FSM:
                 delta_x = origin_x - new_x
                 delta_y = origin_y - new_y
@@ -183,20 +233,22 @@ def test():
                 fsm.send_command(f"signal generate -a x -w dc -A {amplitude_x}", receive= False)
                 fsm.send_command(f"signal generate -a y -w dc -A {amplitude_y}", receive= False)
 
-    except KeyboardInterrupt:
-        print("\nTracking stopped by user.")
+    except (KeyboardInterrupt, RuntimeError) as e:
+        print(f"\nTracking stopped due to Error: {e}")
+
     finally:
         print("Cleaning up")
-        run_time = time.time() - start_time
-        if FSM:
+        if plotter is not None:
+            plotter.close()
+        if fsm is not None:
             fsm.send_command("control strategy off")
             fsm.disconnect()
-        camera_stream.stop()
-        camera.close()
-        if experiment_name != "":
-            save_results(root_dir, results, experiment_name)
+        if camera_stream is not None:
+            camera_stream.stop()
+        if camera is not None:
+            camera.close()
+        save_results(ROOT_DIR, results, EXPERIMENT_NAME)
         print("Cleanup complete.")
-        print(f"Total Run Time: {run_time}")
 
 if __name__ == "__main__":
     test()

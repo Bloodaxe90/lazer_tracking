@@ -22,9 +22,9 @@ class FSM:
         self.baudrate: int = baudrate
         self.timeout: float = timeout
         self.serial: serial.Serial = None
-        self._write_thread: threading.Thread = threading.Thread(target=self._write_loop, daemon=True)
+        self.write_thread: threading.Thread = threading.Thread(target=self.write_loop, daemon=True)
         self.command_buffer: queue.Queue = queue.Queue()  # Thread safe queue to store outgoing commands
-        self._writing: bool = False  # Flag to control the write thread
+        self.writing: bool = False  # Flag to control the write thread
 
     def connect(self):
         """
@@ -33,8 +33,8 @@ class FSM:
         """
         try:
             self.serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
-            self._writing = True
-            self._write_thread.start()
+            self.writing = True
+            self.write_thread.start()
             print(f"Connected to FSM on {self.port} & write thread started")
         except serial.SerialException as e:
             print(f"Error: {e}, Failed to connect to port {self.port}")
@@ -44,8 +44,8 @@ class FSM:
         Stops the write thread and closes the serial connection
         """
         if self.serial and self.serial.is_open:
-            self._writing = False
-            self._write_thread.join()
+            self.writing = False
+            self.write_thread.join()
             self.serial.close()
             print("Disconnected from FSM")
 
@@ -70,12 +70,12 @@ class FSM:
 
         return response_lines
 
-    def _write_loop(self):
+    def write_loop(self):
         """
         Background thread loop that sends commands from the buffer
         to the FSM device
         """
-        while self._writing:
+        while self.writing:
             try:
                 # Wait for a command to appear in the queue
                 command = self.command_buffer.get(block=True, timeout=0.1)

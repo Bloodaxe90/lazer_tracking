@@ -9,8 +9,6 @@ from src.camera.camera_calibration import (
     set_colour,
     set_gain_exposure, get_master_dark, print_controls
 )
-from src.camera.camera_stream import CameraStream
-from src.utils.inference import show_images
 
 
 def setup_camera(root_dir: str,
