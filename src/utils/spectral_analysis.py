@@ -8,7 +8,7 @@ def get_frequencies_and_amplitudes(positions: np.ndarray, times: np.ndarray) -> 
     (won't lie code was taken from stack overflow as I am not physics student)
 
     Args:
-        positions (np.ndarray): The center of the laser positions (e.g., x, y pixel location)
+        positions (np.ndarray): The center of the laser positions (e.g. x, y pixel location)
         times (np.ndarray): Corresponding time values for the data points
 
     Returns:

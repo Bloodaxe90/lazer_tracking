@@ -34,6 +34,7 @@ class CameraStream:
         self.camera.start_video_capture()
         self.stopped = False
         self.update_thread.start()
+        time.sleep(1)
         return self
 
     def update_loop(self):

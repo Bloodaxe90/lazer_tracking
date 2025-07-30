@@ -83,30 +83,33 @@ def lazer_tracking(camera: asi.Camera,
 
         contours = get_contours(clean_frame)
 
-        if not contours:
-            print("Couldn't find any contours")
-            continue
+        if contours:
+            # Identify the largest contour (assumed to be the laser)
+            largest_contour = get_largest_contour(contours)
 
-        # Identify the largest contour (assumed to be the laser)
-        largest_contour = get_largest_contour(contours)
+            measured_x, measured_y = get_contour_origin(largest_contour)
 
-        measured_x, measured_y = get_contour_origin(largest_contour)
+            # If this is the first measurement, initialize Kalman state
+            if kalman_filter.statePost is None:
+                kalman_filter.errorCovPost = np.eye(4, dtype=np.float32) * 1
+                kalman_filter.statePost = np.array(
+                    [[measured_x], [measured_y], [0], [0]], dtype=np.float32)
 
-        # If this is the first measurement, initialize Kalman state
-        if kalman_filter.statePost is None:
-            kalman_filter.errorCovPost = np.eye(4, dtype=np.float32) * 1
-            kalman_filter.statePost = np.array(
-                [[measured_x], [measured_y], [0], [0]], dtype=np.float32)
+            else:
+                # Correct Kalman state using new measurement
+                kalman_filter.correct(
+                    np.array([[measured_x], [measured_y]], dtype=np.float32))
+
+            # Get the post correction estimate
+            estimated_state = kalman_filter.statePost
+            new_x = estimated_state[0, 0]
+            new_y = estimated_state[1, 0]
 
         else:
-            # Correct Kalman state using new measurement
-            kalman_filter.correct(
-                np.array([[measured_x], [measured_y]], dtype=np.float32))
-
-        # Get the predicted position after correction
-        predicted_state = kalman_filter.statePost
-        new_x = predicted_state[0, 0]
-        new_y = predicted_state[1, 0]
+            # Get the pre correction prediction
+            predicted_state = kalman_filter.statePre
+            new_x = predicted_state[0, 0]
+            new_y = predicted_state[1, 0]
 
         # Calculate pixel shift from origin
         delta_x = origin_x - new_x

@@ -11,8 +11,8 @@ def setup_kalman_filter(frame_rate: float,
 
     Parameters:
         frame_rate (float): The number of fps (used to calculate time between frames)
-        model_uncertainty (float): How much uncertainty we have in the model accurately predicting the next position (default is 0.05)
-        measurement_uncertainty (float): How much uncertainty we have in our x, y position measurements representing the actual position of the laser (default is 0.5)
+        model_uncertainty (float): How much uncertainty we have in the model accurately predicting the next position (default is 0.05) (higher value = less certain)
+        measurement_uncertainty (float): How much uncertainty we have in our x, y position measurements representing the actual position of the laser (default is 0.5) (higher value = less certain)
 
     Returns:
         cv2.KalmanFilter: Configured Kalman filter object

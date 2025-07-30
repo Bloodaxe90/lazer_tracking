@@ -51,12 +51,12 @@ def test():
     MEASUREMENT_UNCERTAINTY = 0.5
 
     # testing specific paramters (Including frequency plotter)
-    ITERATIONS = 10000
-    KALMAN_FILTER = False
+    ITERATIONS = 1000
+    KALMAN_FILTER = True
     FSM = False
     CONTOUR_MODE = True
 
-    PLOTTER = True
+    PLOTTER = False
     WINDOW_SIZE = 100
     PLOT_CAPACITY = ITERATIONS
     PLOT_UPDATE_RATE = 1
@@ -70,9 +70,9 @@ def test():
     PLOT_Y_LABEL = "Frequency (Hz)"
 
 
-    EXPERIMENT_NAME: str = (f"Test"
-                            f".04A_"
-                            f"T180s_"
+    EXPERIMENT_NAME: str = (f"stinky_fsm_"
+                            f".003A_"
+                            f"KF{1 if KALMAN_FILTER else 0}_"
                             f"G{GAIN}_"
                             f"E{EXPOSURE}_"
                             f"B{BINS}_"
@@ -80,7 +80,6 @@ def test():
                             f"S{START_POS}_"
                             f"BC{BUFFER_CAPACITY}_"
                             f"FSM{1 if FSM else 0}_"
-                            f"KF{1 if KALMAN_FILTER else 0}_"
                             f"MOU{MODEL_UNCERTAINTY}_"
                             f"MEU{MEASUREMENT_UNCERTAINTY}_"
                             f"C{1 if CONTOUR_MODE else 0}_"
@@ -176,13 +175,17 @@ def test():
                     np.stack(frame_buffer, axis=0), axis=0)
                 .astype(np.uint8))
 
+            measured_x = None
+            measured_y = None
+
             if CONTOUR_MODE:
                 contours = get_contours(clean_frame)
-                if not contours:
-                    print("Couldn't find any contours")
+                if contours:
+                    largest_contour = get_largest_contour(contours)
+                    measured_x, measured_y = get_contour_origin(largest_contour)
+                elif not KALMAN_FILTER:
+                    print("No Contours found")
                     continue
-                largest_contour = get_largest_contour(contours)
-                measured_x, measured_y = get_contour_origin(largest_contour)
             else:
                 _, _, _, max_loc = cv2.minMaxLoc(clean_frame)
                 measured_x, measured_y = max_loc
@@ -191,16 +194,21 @@ def test():
             new_y = measured_y
 
             if KALMAN_FILTER:
-                if i == 0:
-                    kalman_filter.errorCovPost = np.eye(4, dtype=np.float32) * 1
-                    kalman_filter.statePost = np.array(
-                        [[measured_x], [measured_y], [0], [0]], dtype=np.float32)
-                else:
-                    kalman_filter.correct(np.array([[measured_x], [measured_y]], dtype=np.float32))
+                if measured_x is not None and measured_x is not None:
+                    if i == 0:
+                        kalman_filter.errorCovPost = np.eye(4, dtype=np.float32) * 1
+                        kalman_filter.statePost = np.array(
+                            [[measured_x], [measured_y], [0], [0]], dtype=np.float32)
+                    else:
+                        kalman_filter.correct(np.array([[measured_x], [measured_y]], dtype=np.float32))
 
-                predicted_state = kalman_filter.statePost
-                new_x = predicted_state[0,0]
-                new_y = predicted_state[1,0]
+                    estimated_state = kalman_filter.statePost
+                    new_x = estimated_state[0, 0]
+                    new_y = estimated_state[1, 0]
+                else:
+                    predicted_state = kalman_filter.statePre
+                    new_x = predicted_state[0, 0]
+                    new_y = predicted_state[1, 0]
 
             results.loc[len(results)] = {"X" : new_x,
                                          "Y" : new_y,
