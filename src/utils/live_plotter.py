@@ -8,7 +8,7 @@ from collections import deque
 
 class LivePlotter:
     """
-    A real-time plotter
+    A real time plotter
     """
     def __init__(self,
                  root_dir: str,
